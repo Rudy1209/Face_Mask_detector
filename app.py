@@ -1,39 +1,48 @@
 import streamlit as st
 import numpy as np
 import tensorflow as tf
-import cv2
+from PIL import Image, ImageDraw
+import face_recognition
 
-st.title("Smart Face Mask Detector - Only on Faces")
-model = tf.keras.models.load_model('face_mask_detector.h5')
-classes = ["with_mask","without_mask","mask_weared_incorrect"]
+@st.cache_resource
+def load_model():
+    return tf.keras.models.load_model('face_mask_detector.h5')
 
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+model = load_model()
+classes = ["with_mask", "without_mask", "mask_weared_incorrect"]
 
-run = st.checkbox('Start Webcam')
-FRAME_WINDOW = st.image([])
+st.title("Smart Face Mask Detector")
+uploaded_file = st.file_uploader("Upload an image with faces...", type=["jpg","jpeg","png"])
 
-cap = cv2.VideoCapture(0)
+if uploaded_file:
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
-while run:
-    ret, frame = cap.read()
-    if not ret:
-        st.write("Failed to grab frame.")
-        break
+    # Convert to np array for face_recognition
+    img_np = np.array(image)
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+    # Detect faces
+    face_locations = face_recognition.face_locations(img_np)
 
-    for (x,y,w,h) in faces:
-        face_crop = frame[y:y+h, x:x+w]
-        face_resized = cv2.resize(face_crop, (224,224)) / 255.0
-        pred_bbox, pred_class = model.predict(np.expand_dims(face_resized,0), verbose=0)
-        pred_class = pred_class[0]
-        class_name = classes[np.argmax(pred_class)]
-        color = (0,255,0) if class_name=="with_mask" else (0,0,255)
+    if len(face_locations) == 0:
+        st.warning("No faces detected.")
+    else:
+        overlay = image.copy()
+        draw = ImageDraw.Draw(overlay)
 
-        frame = cv2.rectangle(frame, (x,y), (x+w,y+h), color, 2)
-        frame = cv2.putText(frame, class_name, (x, y-10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+        for top, right, bottom, left in face_locations:
+            face_crop = image.crop((left, top, right, bottom)).resize((224,224))
+            face_array = np.array(face_crop) / 255.0
+            face_batch = np.expand_dims(face_array, axis=0)
 
-    FRAME_WINDOW.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-cap.release()
+            # Predict
+            pred_bbox, pred_class = model.predict(face_batch, verbose=0)
+            pred_class_name = classes[np.argmax(pred_class[0])]
+            pred_confidence = np.max(pred_class[0])
+
+            # Draw results
+            color = (0,255,0) if pred_class_name == "with_mask" else (255,0,0)
+            draw.rectangle([left, top, right, bottom], outline=color, width=3)
+            draw.text((left, top-10), f"{pred_class_name} ({pred_confidence:.2f})", fill=color)
+
+        st.image(overlay, caption="Detected faces with mask classification", use_column_width=True)
