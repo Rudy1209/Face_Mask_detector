@@ -1,6 +1,5 @@
+streamlit
 tensorflow
 numpy
-opencv-python
 pillow
-streamlit
-lxml
+face_recognition
