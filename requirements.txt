@@ -2,4 +2,5 @@ streamlit
 tensorflow
 numpy
 pillow
-face_recognition
+opencv-python
+
